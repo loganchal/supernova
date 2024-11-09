@@ -1,0 +1,54 @@
+---
+title: "Copepod and Amphipod Analysis"
+author: "Logan Chalmers"
+date: "2024-11-09"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(ggplot2)
+```
+
+## Import Data
+
+```{r}
+#import data 
+count_data <- readxl::read_excel(here('raw_data', 'zooplankton_count_data.xlsx'))
+
+#filter it to the middle segment 
+
+compare_data <- count_data %>%
+  filter(site %in% c("trevor_middle_margin", "trevor_middle_center")) 
+```
+
+## Testing Assumptions
+
+Normality Testing. Test confirms satisfies the normality assumption as P\<0.05.
+
+```{r}
+shapiro_amphipod_center <- shapiro.test(compare_data$amphipod_count[compare_data$site == "trevor_middle_center"])
+shapiro_amphipod_margin <- shapiro.test(compare_data$amphipod_count[compare_data$site == "trevor_middle_margin"])
+
+shapiro_amphipod_center
+shapiro_amphipod_margin
+```
+
+Homogeneity of variance testing. Run the bartlett test. Test suggests no significant difference in variances between sites as P\<0.05.
+
+```{r}
+bartlett_amphipod <- bartlett.test(amphipod_count ~ site, data = compare_data)
+bartlett_amphipod
+```
+
+## T-Test
+
+The P value is 0.008891 which is below our significance threshold of 0.05 indicating a statistically significant difference between amphipod counts at the sites.
+
+```{r}
+#
+amphipod_t_test <- t.test(compare_data$amphipod_count ~ compare_data$site, var.equal = TRUE)
+amphipod_t_test
+```
