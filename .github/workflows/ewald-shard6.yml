@@ -27,17 +27,58 @@ jobs:
               --output "ewald_search/data/block${b}"
           done
           wc -l ewald_search/data/block*
-      - name: Install Boost headers
+      - name: Remove external multiprecision dependency
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libboost-dev
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ewald_search/ewald_screen.cpp')
+          s = p.read_text()
+          s = s.replace('#include <boost/multiprecision/cpp_int.hpp>\n', '')
+          s = s.replace('using boost::multiprecision::cpp_int;\n', '')
+          old = '''static std::vector<Vec> decode_line(const std::string& line, int base) {
+              cpp_int n(line);
+              std::vector<int> a;
+              while(n>0) {
+                  cpp_int q=n/base; cpp_int r=n-q*base;
+                  a.push_back(r.convert_to<int>()); n=q;
+              }
+          '''
+          compact_old = '''static std::vector<Vec> decode_line(const std::string& line, int base) {
+              cpp_int n(line);
+              std::vector<int> a;
+              while(n>0) { cpp_int q=n/base; cpp_int r=n-q*base; a.push_back(r.convert_to<int>()); n=q; }
+          '''
+          new = '''static int decimal_divmod(std::string& n, int base) {
+              long long rem=0; std::string q; q.reserve(n.size()); bool started=false;
+              for(char c:n){
+                  if(c<'0'||c>'9') throw std::runtime_error("nondecimal encoded record");
+                  long long cur=rem*10+(c-'0'); int digit=int(cur/base); rem=cur%base;
+                  if(digit||started){q.push_back(char('0'+digit));started=true;}
+              }
+              n=started?q:"0"; return int(rem);
+          }
+
+          static std::vector<Vec> decode_line(const std::string& line, int base) {
+              if(base<2||base>10) throw std::runtime_error("unsupported encoding base");
+              std::string n=line;
+              std::vector<int> a;
+              while(n!="0") a.push_back(decimal_divmod(n,base));
+          '''
+          if old in s:
+              s = s.replace(old, new)
+          elif compact_old in s:
+              s = s.replace(compact_old, new)
+          else:
+              raise SystemExit('decoder pattern not found')
+          Path('ewald_search/ewald_screen_noboost.cpp').write_text(s)
+          PY
       - name: Compile and screen
         shell: bash
         run: |
           set -euo pipefail
-          g++ -O3 -march=native -std=c++20 ewald_search/ewald_screen.cpp -o ewald_search/ewald_screen
+          g++ -O3 -march=native -std=c++20 ewald_search/ewald_screen_noboost.cpp -o ewald_search/ewald_screen
           ewald_search/ewald_screen ewald_search/data 60 69 200000 \
             > ewald_search/result-6-replacement.jsonl \
             2> ewald_search/progress-6-replacement.log
@@ -47,7 +88,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ewald-shard-6-replacement
+          name: ewald-shard-6-replacement-noboost
           path: |
             ewald_search/result-6-replacement.jsonl
             ewald_search/progress-6-replacement.log
