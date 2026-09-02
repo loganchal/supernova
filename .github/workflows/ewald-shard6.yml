@@ -1,0 +1,55 @@
+name: Ewald shard 6 replacement
+
+on:
+  push:
+    branches: [ewald-search-20260902]
+    paths:
+      - '.github/workflows/ewald-shard6.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shard6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch blocks 60 through 69
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ewald_search/data
+          for b in $(seq 60 69); do
+            curl --fail --location --retry 5 --silent --show-error \
+              "https://raw.githubusercontent.com/GorrieXIV/Magma/master/libs/data/polytopes/smoothfano8/block${b}" \
+              --output "ewald_search/data/block${b}"
+          done
+          wc -l ewald_search/data/block*
+      - name: Install Boost headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libboost-dev
+      - name: Compile and screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -O3 -march=native -std=c++20 ewald_search/ewald_screen.cpp -o ewald_search/ewald_screen
+          ewald_search/ewald_screen ewald_search/data 60 69 200000 \
+            > ewald_search/result-6-replacement.jsonl \
+            2> ewald_search/progress-6-replacement.log
+          cat ewald_search/progress-6-replacement.log
+          cat ewald_search/result-6-replacement.jsonl
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ewald-shard-6-replacement
+          path: |
+            ewald_search/result-6-replacement.jsonl
+            ewald_search/progress-6-replacement.log
+          if-no-files-found: warn
+          retention-days: 7
