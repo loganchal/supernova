@@ -13,12 +13,12 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Install pymongo
         run: python3 -m pip install --quiet pymongo
-      - name: Probe known collection names
+      - name: Probe documented collection by indexed ID range
         shell: bash
         run: |
           set -euo pipefail
@@ -27,38 +27,37 @@ jobs:
           from pymongo import MongoClient
 
           uri = 'mongodb://polymake:database@db.polymake.org:27017/?tls=true&directConnection=true'
-          c = MongoClient(uri, serverSelectionTimeoutMS=20000, connectTimeoutMS=20000)
+          c = MongoClient(uri, serverSelectionTimeoutMS=15000, connectTimeoutMS=15000, socketTimeoutMS=15000)
           print('PING', c.admin.command('ping'))
           db = c.polydb
-          names = [
-              'Polytopes.Lattice.SmoothReflexive',
-              'LatticePolytopes.SmoothReflexive',
-              'SmoothReflexive',
-          ]
-          filters = [
-              {'CONE_DIM': 10},
-              {'CONE_DIM': 9},
-              {'DIM': 9},
-              {'_id': {'$regex': '^F\\.9D\\.'}},
-              {},
-          ]
-          for name in names:
-              coll = db[name]
+          for name in ['Polytopes.Lattice.SmoothReflexive', 'LatticePolytopes.SmoothReflexive', 'SmoothReflexive']:
               print('COLLECTION', name)
-              for filt in filters:
+              coll = db[name]
+              try:
+                  anydoc = coll.find_one({}, max_time_ms=5000)
+                  print('ANY_ID', None if anydoc is None else anydoc.get('_id'))
+              except Exception as e:
+                  print('ANY_ERROR', type(e).__name__, str(e)); continue
+              if anydoc is None:
+                  continue
+              ranges = [
+                  {'_id': {'$gte': 'F.9D.', '$lt': 'F.9E.'}},
+                  {'_id': {'$gte': '9.', '$lt': '9/'}},
+                  {'CONE_DIM': 10},
+              ]
+              for filt in ranges:
                   try:
-                      doc = coll.find_one(filt)
+                      doc = coll.find_one(filt, max_time_ms=10000)
                   except Exception as e:
-                      print('FIND_ERROR', json.dumps(filt), type(e).__name__, str(e)); continue
+                      print('QUERY_ERROR', json.dumps(filt), type(e).__name__, str(e)); continue
+                  print('QUERY', json.dumps(filt), 'ID', None if doc is None else doc.get('_id'))
                   if doc is None:
-                      print('NO_DOC', json.dumps(filt)); continue
-                  print('FILTER', json.dumps(filt))
-                  print('ID', doc.get('_id'))
+                      continue
                   print('KEYS', json.dumps(sorted(doc.keys())))
                   for key in sorted(doc):
                       if key == '_id': continue
                       text = repr(doc[key])
-                      if len(text) > 5000: text = text[:5000] + '...'
+                      if len(text) > 10000: text = text[:10000] + '...'
                       print('FIELD', key, text)
                   break
           PY
@@ -66,7 +65,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ewald-d9-probe-known
+          name: ewald-d9-probe-indexed
           path: ewald-d9-probe.txt
           if-no-files-found: warn
           retention-days: 7
