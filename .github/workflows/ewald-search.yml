@@ -12,20 +12,32 @@ permissions:
   contents: read
 
 jobs:
-  pilot:
+  exhaustive-screen:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 11
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch classification block 0
+      - name: Fetch classification shard
         shell: bash
         run: |
           set -euo pipefail
+          shard=${{ matrix.shard }}
+          lo=$((shard * 10))
+          hi=$((lo + 9))
+          if (( hi > 100 )); then hi=100; fi
           mkdir -p ewald_search/data
-          curl --fail --location --retry 5 \
-            https://raw.githubusercontent.com/GorrieXIV/Magma/master/libs/data/polytopes/smoothfano8/block0 \
-            --output ewald_search/data/block0
-          wc -l ewald_search/data/block0
+          for b in $(seq "$lo" "$hi"); do
+            curl --fail --location --retry 5 --silent --show-error \
+              "https://raw.githubusercontent.com/GorrieXIV/Magma/master/libs/data/polytopes/smoothfano8/block${b}" \
+              --output "ewald_search/data/block${b}"
+          done
+          echo "$lo $hi" > ewald_search/range-${shard}.txt
+          wc -l ewald_search/data/block*
       - name: Install compiler dependency
         shell: bash
         run: |
@@ -37,22 +49,25 @@ jobs:
         run: |
           set -euo pipefail
           g++ -O3 -march=native -std=c++20 ewald_search/ewald_screen.cpp -o ewald_search/ewald_screen
-      - name: Screen block 0
+      - name: Screen shard
         shell: bash
         run: |
           set -euo pipefail
-          ewald_search/ewald_screen ewald_search/data 0 0 200000 \
-            > ewald_search/result-0.jsonl \
-            2> ewald_search/progress-0.log
-          cat ewald_search/progress-0.log
-          tail -n 5 ewald_search/result-0.jsonl
-      - name: Upload results
+          shard=${{ matrix.shard }}
+          read -r lo hi < ewald_search/range-${shard}.txt
+          ewald_search/ewald_screen ewald_search/data "$lo" "$hi" 200000 \
+            > "ewald_search/result-${shard}.jsonl" \
+            2> "ewald_search/progress-${shard}.log"
+          cat "ewald_search/progress-${shard}.log"
+          tail -n 20 "ewald_search/result-${shard}.jsonl"
+      - name: Upload shard result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ewald-pilot-0
+          name: ewald-shard-${{ matrix.shard }}
           path: |
-            ewald_search/result-0.jsonl
-            ewald_search/progress-0.log
+            ewald_search/result-${{ matrix.shard }}.jsonl
+            ewald_search/progress-${{ matrix.shard }}.log
+            ewald_search/range-${{ matrix.shard }}.txt
           if-no-files-found: warn
           retention-days: 7
