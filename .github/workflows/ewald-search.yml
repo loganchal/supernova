@@ -1,0 +1,52 @@
+name: Ewald dimension-8 search
+
+on:
+  push:
+    branches: [ewald-search-20260902]
+    paths:
+      - 'ewald_search/**'
+      - '.github/workflows/ewald-search.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch classification block 0
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ewald_search/data
+          curl --fail --location --retry 5 \
+            https://raw.githubusercontent.com/GorrieXIV/Magma/master/libs/data/polytopes/smoothfano8/block0 \
+            --output ewald_search/data/block0
+          wc -l ewald_search/data/block0
+      - name: Compile exact screener
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -O3 -march=native -std=c++20 ewald_search/ewald_screen.cpp -o ewald_search/ewald_screen
+      - name: Screen block 0
+        shell: bash
+        run: |
+          set -euo pipefail
+          ewald_search/ewald_screen ewald_search/data 0 0 200000 \
+            > ewald_search/result-0.jsonl \
+            2> ewald_search/progress-0.log
+          cat ewald_search/progress-0.log
+          tail -n 5 ewald_search/result-0.jsonl
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ewald-pilot-0
+          path: |
+            ewald_search/result-0.jsonl
+            ewald_search/progress-0.log
+          if-no-files-found: warn
+          retention-days: 7
