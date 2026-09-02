@@ -1,0 +1,65 @@
+name: Probe polyDB dimension 9
+
+on:
+  push:
+    branches: [ewald-search-20260902]
+    paths:
+      - '.github/workflows/ewald-d9-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pymongo
+        run: python3 -m pip install --quiet pymongo
+      - name: Probe database
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee ewald-d9-probe.txt
+          import json
+          from pymongo import MongoClient
+
+          uri = 'mongodb://polymake:database@db.polymake.org:27017/?tls=true&directConnection=true'
+          c = MongoClient(uri, serverSelectionTimeoutMS=20000, connectTimeoutMS=20000)
+          print('PING', c.admin.command('ping'))
+          db = c.polydb
+          names = sorted(n for n in db.list_collection_names() if 'SmoothReflexive' in n or 'smooth' in n.lower())
+          print('COLLECTIONS', json.dumps(names))
+          for name in names:
+              coll = db[name]
+              print('COLLECTION', name)
+              try:
+                  print('TOTAL', coll.estimated_document_count())
+              except Exception as e:
+                  print('TOTAL_ERROR', repr(e))
+              for filt in ({'CONE_DIM': 10}, {'DIM': 9}, {'CONE_DIM': 9}, {}):
+                  try:
+                      doc = coll.find_one(filt)
+                  except Exception as e:
+                      print('FIND_ERROR', filt, repr(e)); continue
+                  if doc is None:
+                      print('NO_DOC', filt); continue
+                  print('FILTER', json.dumps(filt))
+                  print('ID', doc.get('_id'))
+                  print('KEYS', json.dumps(sorted(doc.keys())))
+                  for key in sorted(doc):
+                      if key == '_id': continue
+                      val = doc[key]
+                      text = repr(val)
+                      if len(text) > 2000: text = text[:2000] + '...'
+                      print('FIELD', key, text)
+                  break
+          PY
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ewald-d9-probe
+          path: ewald-d9-probe.txt
+          retention-days: 7
