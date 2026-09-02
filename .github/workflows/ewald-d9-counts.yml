@@ -1,0 +1,52 @@
+name: Count dimension-9 facet strata
+
+on:
+  push:
+    branches: [ewald-search-20260902]
+    paths:
+      - '.github/workflows/ewald-d9-counts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  counts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install pymongo
+        run: python3 -m pip install --quiet pymongo
+      - name: Count indexed ID strata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee ewald-d9-counts.jsonl
+          import json, time
+          from pymongo import MongoClient
+
+          uri = 'mongodb://polymake:database@db.polymake.org:27017/?tls=true&directConnection=true'
+          c = MongoClient(uri, serverSelectionTimeoutMS=15000, connectTimeoutMS=15000, socketTimeoutMS=120000)
+          coll = c.polydb['Polytopes.Lattice.SmoothReflexive']
+          total = 0
+          for nf in range(10, 28):
+              lo = f'F.9D.f{nf}.0000000'
+              hi = f'F.9D.f{nf}.9999999~'
+              filt = {'_id': {'$gte': lo, '$lt': hi}}
+              t = time.time()
+              n = coll.count_documents(filt, maxTimeMS=120000)
+              total += n
+              first = coll.find_one(filt, projection={'_id':1, 'FACETS':1, 'N_FACETS':1}, sort=[('_id',1)], max_time_ms=30000)
+              last = coll.find_one(filt, projection={'_id':1}, sort=[('_id',-1)], max_time_ms=30000)
+              print(json.dumps({'nfacets':nf,'count':n,'first':None if first is None else first['_id'],
+                                'last':None if last is None else last['_id'],
+                                'sample_facets':None if first is None else first['FACETS'],
+                                'seconds':time.time()-t}, separators=(',',':')))
+          print(json.dumps({'total':total}, separators=(',',':')))
+          PY
+      - name: Upload counts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ewald-d9-counts
+          path: ewald-d9-counts.jsonl
+          retention-days: 7
