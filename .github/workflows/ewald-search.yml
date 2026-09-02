@@ -26,6 +26,12 @@ jobs:
             https://raw.githubusercontent.com/GorrieXIV/Magma/master/libs/data/polytopes/smoothfano8/block0 \
             --output ewald_search/data/block0
           wc -l ewald_search/data/block0
+      - name: Install compiler dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libboost-dev
       - name: Compile exact screener
         shell: bash
         run: |
